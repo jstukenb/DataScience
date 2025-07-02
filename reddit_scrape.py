@@ -1,52 +1,56 @@
-import re
-import os
-import json
 import time
 import requests
 import pandas as pd
-from datetime import datetime
 from bs4 import BeautifulSoup
-import http.client, urllib.parse
 
 def scrape_reddit():
-    url = "https://old.reddit.com/r/datascience/"
+    subreddit = input("Enter the subreddit name (e.g., learnpython, datascience): ").strip()
+    url = f"https://old.reddit.com/r/{subreddit}/"
     headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
-    r1 = requests.get(url, headers = headers)
     counter = 1
-    df = pd.DataFrame()
-    titles = []
-    authors = []
-    total_comments = []
-    total_likes = []
-    soup = BeautifulSoup(r1.content, "html.parser")
+    titles, authors, total_comments, total_likes = [], [], [], []
 
-    attrs = {'class': 'thing', 'data-domain': 'self.datascience'}
+    print(f"\nScraping subreddit: {subreddit}\n")
+
     while (counter <= 10):
-        posts = soup.find_all('div', attrs=attrs)
+        print(f"Scraping page {counter}...")
+        r = requests.get(url, headers = headers)
+        soup = BeautifulSoup(r.content, "html.parser")
+        posts = soup.find_all('div', class_='thing', attrs={'data-domain': f'self.{subreddit}'})
+        
         for post in posts:
-            titles.append(post.find('p', class_="title").text)
-            authors.append(post.find('a', class_='author').text)
-            comments = post.find('a', class_='comments').text.split()[0]
-            if comments == "comment":
+            title_tag = post.find('p', class_='title')
+            author_tag = post.find('a', class_='author')
+            comments_tag = post.find('a', class_='comments')
+            likes_tag = post.find("div", class_="score likes")
+            titles.append(title_tag.text.strip() if title_tag else 'No Title')
+            authors.append(author_tag.text.strip() if author_tag else 'Unknown')
+
+            try:
+                comments_text = comments_tag.text.split()[0]
+                comments = int(comments_text) if comments_text.isdigit() else 0
+            except:
                 comments = 0
             total_comments.append(comments)
-            likes = post.find("div", attrs={"class": "score likes"}).text
-            if likes == "•":
-                likes = "None"
-            total_likes.append(likes)
+            likes = likes_tag.text if likes_tag else '0'
+            total_likes.append(likes if likes.isdigit() else '0')
+        # Check if there is a next page
         next_button = soup.find("span", class_="next-button")
-        next_page_link = next_button.find("a").attrs['href']
+        if not next_button:
+            print("No more pages to scrape.")
+            break
+        url = next_button.find("a")['href']
+        counter+= 1
         time.sleep(2)
-        page = requests.get(next_page_link, headers=headers)
-        soup = BeautifulSoup(page.text, 'html.parser')
-        counter+=1
 
-    df['Titles'] = titles
-    df['Authors'] = authors
-    df['Comments'] = total_comments
-    df['Likes'] = total_likes
-
-    df.to_csv('reddit_data_science.csv',header=True)
+    df = pd.DataFrame({
+        'Title': titles,
+        'Author': authors,
+        'Total Comments': total_comments,
+        'Total Likes': total_likes
+    })
+    filename = f'reddit_{subreddit}.csv'
+    df.to_csv(filename, index=False)
+    print(f"\nScraping completed. Data saved to {filename}\n")
     return df
-
 scrape_reddit()
